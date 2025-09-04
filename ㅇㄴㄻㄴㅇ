@@ -1,0 +1,131 @@
+import streamlit as st
+import cv2
+import numpy as np
+from deepface import DeepFace
+import os
+import traceback
+
+st.set_page_config(page_title="주성고등학교 동아리 코싸인", layout="centered")
+
+# ---------------- 세션 상태 초기화 ----------------
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+if "last_image_path" not in st.session_state:
+    st.session_state.last_image_path = None
+if "last_analysis" not in st.session_state:
+    st.session_state.last_analysis = None
+
+st.markdown("<h1 style='text-align:center;'>얼굴 인식 인공지능</h1>", unsafe_allow_html=True)
+
+# ---------------- 홈 페이지 ----------------
+if st.session_state.page == "home":
+    st.markdown("""
+        <div style='margin-bottom:10px; padding:20px; border-radius:15px; background-color:#f0f9ff; text-align:center;'>
+            <p>딥러닝 기반 DeepFace를 이용한 얼굴 인식입니다.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("사진 찍어 분석"):
+        st.session_state.page = "camera_internal"
+        st.rerun()
+
+# ---------------- 카메라 페이지 ----------------
+elif st.session_state.page == "camera_internal":
+    st.markdown("<h3 style='text-align:center;'>사진 찍어 분석하기</h3>", unsafe_allow_html=True)
+    uploaded_image = st.camera_input("카메라로 사진을 찍어주세요")
+
+    if uploaded_image is not None:
+        try:
+            # OpenCV 이미지로 변환
+            file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+            img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+            if img_bgr is not None:
+                # 파일로 저장
+                image_path = "captured_image.jpg"
+                cv2.imwrite(image_path, img_bgr)
+                st.session_state.last_image_path = image_path
+
+                try:
+                    # age와 gender만 분석
+                    result = DeepFace.analyze(
+                        img_path=image_path,
+                        actions=["age", "gender"],
+                        enforce_detection=False
+                    )
+
+                    if isinstance(result, list) and len(result) > 0:
+                        d = result[0]
+                    elif isinstance(result, dict):
+                        d = result
+                    else:
+                        d = None
+
+                    # 눈 값 null 체크 (None 이면 경고)
+                    if d is not None:
+                        left_eye = d.get("region", {}).get("left_eye")
+                        right_eye = d.get("region", {}).get("right_eye")
+
+                        if left_eye is None or right_eye is None:
+                            st.warning("눈 위치를 감지하지 못했습니다. 결과가 정확하지 않을 수 있으니 다시 찍어주세요.")
+                            d = None  # 저장하지 않음
+                        else:
+                            st.success("분석 완료!") 
+
+                    st.session_state.last_analysis = d
+
+                except Exception as e:
+                    st.error(f"DeepFace 분석 오류: {e}")
+                    traceback.print_exc()
+            else:
+                st.error("이미지를 읽을 수 없습니다.")
+
+        except Exception as e:
+            st.error(f"이미지 처리 오류: {e}")
+            traceback.print_exc()
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("결과 화면으로 이동"):
+            st.session_state.page = "result"
+            st.rerun()
+    with col2:
+        if st.button("뒤로가기"):
+            st.session_state.page = "home"
+            st.rerun()
+
+# ---------------- 결과 페이지 ----------------
+elif st.session_state.page == "result":
+    st.markdown("<h2 style='text-align:center;'>\n닮은 연예인</h2>", unsafe_allow_html=True)
+
+    # 닮은꼴 찾기
+    if st.session_state.last_image_path is None:
+        st.error("분석할 사진이 없습니다.")
+    else:
+        try:
+            db_path = "db"  # DB 폴더 (얼굴 이미지 여러 장 넣기)
+            if not os.path.exists(db_path):
+                st.warning("DB 폴더가 없습니다. db 폴더를 만들어주세요.")
+            else:
+                df = DeepFace.find(
+                    img_path=st.session_state.last_image_path,
+                    db_path=db_path,
+                    model_name="VGG-Face",
+                    enforce_detection=False
+                )
+
+                if df and len(df) > 0 and not df[0].empty:
+                    best_match = df[0].iloc[0]  # 가장 닮은 이미지
+                    st.success(f"닮은 사람: {os.path.basename(best_match['identity'])}")
+                    st.image(best_match['identity'], caption="닮은꼴 사진", use_container_width=True)
+                else:
+                    st.warning("DB에서 닮은꼴을 찾지 못했습니다. (얼굴 감지 실패 가능)")
+
+        except Exception as e:
+            st.error(f"닮은꼴 찾기 오류: {e}")
+            traceback.print_exc()
+
+    if st.button("홈으로 돌아가기"):
+        st.session_state.page = "home"
+        st.rerun()
