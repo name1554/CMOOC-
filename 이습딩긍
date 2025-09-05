@@ -1,0 +1,158 @@
+import streamlit as st
+import cv2
+import numpy as np
+from deepface import DeepFace
+import os
+import traceback
+
+st.set_page_config(page_title="주성고등학교 동아리 코싸인", layout="centered")
+
+# ---------------- 세션 상태 초기화 ----------------
+if "page" not in st.session_state:
+    st.session_state.page = "home"
+if "last_image_path" not in st.session_state:
+    st.session_state.last_image_path = None
+if "last_analysis" not in st.session_state:
+    st.session_state.last_analysis = None
+
+# ---------------- 번호 → 연예인 이름 매핑 ----------------
+celeb_dict = {
+    "1": "김해준(최준)", "2": "추성훈", "3": "권나라", "4": "오해원(엔믹스)", "5": "잔나비",
+    "6": "조나단", "7": "이무진", "8": "김원훈", "9": "이재용", "10": "지예은",
+    "11": "설윤(엔믹스)", "12": "박보검", "13": "츄(이달의 소녀)", "14": "qwer시연", "15": "김연아",
+    "16": "덱스", "17": "김종국", "18": "밍모", "19": "박나래", "20": "김구라",
+    "22": "손석구", "23": "류현진", "24": "강형욱", "25": "한문철", "26": "비비",
+    "27": "유병재", "28": "겜브링", "29": "일오팔", "30": "서이브", "31": "헌터퐝",
+    "32": "낭만박상환", "33": "김된모", "34": "조진세", "35": "보겸", "36": "리오넬 메시",
+    "37": "닝닝(에스파)", "38": "주둥이", "39": "허팝", "40": "잇섭", "41": "싸이",
+    "42": "탑(빅뱅)", "43": "대성(빅뱅)", "44": "태양(빅뱅)", "45": "지디(빅뱅)",
+    "46": "조세호", "47": "하하", "48": "노홍철", "49": "마크툽", "50": "성시경",
+    "51": "자이언티", "52": "스윙스", "53": "이영지", "54": "조광일", "55": "유해진",
+    "56": "감스트(김인직)", "57": "리즈(아이브)", "58": "마동석", "59": "아이쇼스피드",
+    "60": "안정환", "61": "정준하", "62": "이수근", "63": "박명수", "64": "우즈(조승연)",
+    "65": "민경훈(버즈)", "66": "도티", "67": "김블루", "68": "김재원", "69": "김민재",
+    "70": "박지성", "71": "손흥민", "72": "풍자", "73": "페이커(이상혁)", "74": "침착맨(이말년)",
+    "75": "말왕", "76": "이창섭(비투비)", "77": "원빈(라이즈)", "78": "지수(블랙핑크)",
+    "79": "제니(블랙핑크)", "80": "유나(잇지)", "81": "원희(아일릿)", "82": "민주(아일릿)",
+    "83": "안유진(아이브)", "84": "장원영(아이브)", "85": "원터(에스파)", "86": "카리나(에스파)",
+    "87": "고윤정", "88": "아이유", "89": "박보영", "90": "김태리", "91": "강호동",
+    "92": "유민상", "93": "유재석", "95": "강동원", "96": "이도현", "97": "신동엽",
+    "98": "뷔(bts)", "99": "김우빈", "100": "차은우"
+}
+
+st.markdown("<h1 style='text-align:center;'>얼굴 인식 인공지능</h1>", unsafe_allow_html=True)
+
+# ---------------- 홈 페이지 ----------------
+if st.session_state.page == "home":
+    st.markdown("""
+        <div style='margin-bottom:10px; padding:20px; border-radius:15px; background-color:#f0f9ff; text-align:center;'>
+            <p>딥러닝 기반 DeepFace를 이용한 얼굴 인식입니다.</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("사진 찍어 분석"):
+        st.session_state.page = "camera_internal"
+        st.rerun()
+
+# ---------------- 카메라 페이지 ----------------
+elif st.session_state.page == "camera_internal":
+    st.markdown("<h3 style='text-align:center;'>사진 찍어 분석하기</h3>", unsafe_allow_html=True)
+    uploaded_image = st.camera_input("카메라로 사진을 찍어주세요")
+
+    if uploaded_image is not None:
+        try:
+            # OpenCV 이미지로 변환
+            file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+            img_bgr = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+            if img_bgr is not None:
+                # 파일로 저장
+                image_path = "captured_image.jpg"
+                cv2.imwrite(image_path, img_bgr)
+                st.session_state.last_image_path = image_path
+
+                try:
+                    # age와 gender만 분석
+                    result = DeepFace.analyze(
+                        img_path=image_path,
+                        actions=["age", "gender"],
+                        enforce_detection=False
+                    )
+
+                    if isinstance(result, list) and len(result) > 0:
+                        d = result[0]
+                    elif isinstance(result, dict):
+                        d = result
+                    else:
+                        d = None
+
+                    # 눈 값 null 체크
+                    if d is not None:
+                        left_eye = d.get("region", {}).get("left_eye")
+                        right_eye = d.get("region", {}).get("right_eye")
+
+                        if left_eye is None or right_eye is None:
+                            st.warning("눈 위치를 감지하지 못했습니다. 결과가 정확하지 않을 수 있으니 다시 찍어주세요.")
+                            d = None
+                        else:
+                            st.success("분석 완료!")
+
+                    st.session_state.last_analysis = d
+
+                except Exception as e:
+                    st.error(f"DeepFace 분석 오류: {e}")
+                    traceback.print_exc()
+            else:
+                st.error("이미지를 읽을 수 없습니다.")
+
+        except Exception as e:
+            st.error(f"이미지 처리 오류: {e}")
+            traceback.print_exc()
+
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("결과 화면으로 이동"):
+            st.session_state.page = "result"
+            st.rerun()
+    with col2:
+        if st.button("뒤로가기"):
+            st.session_state.page = "home"
+            st.rerun()
+
+# ---------------- 결과 페이지 ----------------
+elif st.session_state.page == "result":
+    st.markdown("<h2 style='text-align:center;'>\n닮은 연예인</h2>", unsafe_allow_html=True)
+
+    if st.session_state.last_image_path is None:
+        st.error("분석할 사진이 없습니다.")
+    else:
+        try:
+            db_path = "db"
+            if not os.path.exists(db_path):
+                st.warning("DB 폴더가 없습니다. db 폴더를 만들어주세요.")
+            else:
+                df = DeepFace.find(
+                    img_path=st.session_state.last_image_path,
+                    db_path=db_path,
+                    model_name="VGG-Face",
+                    enforce_detection=False
+                )
+
+                if df and len(df) > 0 and not df[0].empty:
+                    best_match = df[0].iloc[0]
+                    filename = os.path.splitext(os.path.basename(best_match["identity"]))[0]  # "23.jpg" → "23"
+                    celeb_name = celeb_dict.get(filename, filename)
+
+                    st.success(f"닮은 사람: {celeb_name}")
+                    st.image(best_match["identity"], caption=f"{celeb_name}", use_container_width=True)
+                else:
+                    st.warning("DB에서 닮은꼴을 찾지 못했습니다.")
+
+        except Exception as e:
+            st.error(f"닮은꼴 찾기 오류: {e}")
+            traceback.print_exc()
+
+    if st.button("홈으로 돌아가기"):
+        st.session_state.page = "home"
+        st.rerun()
